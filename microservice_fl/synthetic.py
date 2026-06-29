@@ -131,6 +131,8 @@ class _Builder:
         # downstream calls (auth + logging) — capture victim propagation
         exits = []
         for ds, ds_ep in _DOWNSTREAMS.items():
+            if ds == caller:
+                continue  # a service does not Feign-RPC to itself
             ds_lat = _BASE_LATENCY + self.rng.uniform(-3, 5)
             ds_err = False
             if fault and fault["service"] == ds and fault["in_window"]:
@@ -138,7 +140,7 @@ class _Builder:
                     ds_lat += fault["delay_ms"]
                 else:
                     ds_err = True
-            entry_latency += ds_lat if ds != caller else 0
+            entry_latency += ds_lat
             entry_error = entry_error or ds_err
             exits.append((ds, ds_ep, ds_lat, ds_err))
 
