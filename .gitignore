@@ -31,6 +31,11 @@ frontend/terminal/node_modules/
 .openharness/
 react_tui_smoke.txt
 
+# MicroServiceFL data artifacts (built locally from the raw dataset)
+microservice_fl/data/
+*.duckdb
+*.duckdb.wal
+
 # OS
 .DS_Store
 Thumbs.db
