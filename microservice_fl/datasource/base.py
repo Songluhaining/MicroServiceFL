@@ -77,12 +77,34 @@ class TopologyEdge:
 
 @dataclass(frozen=True)
 class LogEntry:
-    """A single log line (typically WARN/EXCEPTION) within a window."""
+    """A single log line (typically WARN/EXCEPTION) within a window.
+
+    ``logger`` (the logging class FQN) and ``stack_trace`` are populated when the
+    log modality carries them — they are the direct class-level signal. They are
+    ``None`` on collections that lack the enriched columns.
+    """
 
     timestamp: str
     service: str
     level: str
     message: str
+    logger: str | None = None
+    stack_trace: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorSignal:
+    """An aggregated error fingerprint derived from trace error spans.
+
+    Populated from the enriched ``error_type`` / ``error_stack`` trace columns;
+    the top stack frame is the bridge from an error span to a class/method.
+    """
+
+    service: str
+    endpoint: str
+    error_type: str
+    count: int
+    sample_stack: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +169,16 @@ class DataSource(ABC):
         limit: int = 50,
     ) -> list[LogEntry]:
         """Return matching log lines (errors/exceptions) within the window."""
+
+    @abstractmethod
+    def span_errors(
+        self, service: str | None, window: TimeWindow, *, top_n: int = 20
+    ) -> list[ErrorSignal]:
+        """Aggregate error spans by (service, endpoint, exception type).
+
+        The top stack frame in ``sample_stack`` is the bridge from an error span
+        to the throwing class/method.
+        """
 
     # -- lifecycle ---------------------------------------------------------- #
 

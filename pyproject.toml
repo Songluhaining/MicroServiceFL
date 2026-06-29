@@ -36,6 +36,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# MicroServiceFL fault-localization add-on (data layer + tools).
+fl = [
+    "duckdb>=1.0.0",
+    "pandas>=1.5.0",
+]
 dev = [
     "pexpect>=4.9.0",
     "pytest>=8.0.0",
@@ -52,7 +57,7 @@ openh = "openharness.cli:app"
 ohmo = "ohmo.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/openharness", "ohmo"]
+packages = ["src/openharness", "ohmo", "microservice_fl"]
 
 [tool.hatch.build]
 exclude = [

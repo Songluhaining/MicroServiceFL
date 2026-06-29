@@ -95,6 +95,17 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         registry.register(ReadMcpResourceTool(mcp_manager))
         for tool_info in mcp_manager.list_tools():
             registry.register(McpToolAdapter(mcp_manager, tool_info))
+
+    # MicroServiceFL fault-localization tools (optional add-on package). Guarded
+    # so the harness still works when microservice_fl is not installed/available.
+    try:
+        from microservice_fl.tools import build_fl_tools
+
+        for tool in build_fl_tools():
+            registry.register(tool)
+    except ImportError:
+        pass
+
     return registry
 
 

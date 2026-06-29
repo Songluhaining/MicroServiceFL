@@ -17,6 +17,7 @@ from microservice_fl.datasource.base import (
     Case,
     DataSource,
     EndpointStat,
+    ErrorSignal,
     LogEntry,
     ServiceStat,
     TimeWindow,
@@ -50,6 +51,14 @@ class DuckDBDataSource(DataSource):
 
     def close(self) -> None:
         self._conn.close()
+
+    def _columns(self, table: str) -> set[str]:
+        """Return the column names of a table (used to support enriched fields)."""
+        try:
+            rows = self._conn.execute(f"PRAGMA table_info('{table}')").fetchall()
+        except duckdb.Error:
+            return set()
+        return {r[1] for r in rows}
 
     # -- baseline resolution ------------------------------------------------ #
 
@@ -230,7 +239,14 @@ class DuckDBDataSource(DataSource):
         limit: int = 50,
     ) -> list[LogEntry]:
         start, end, _, _ = self._resolve(window)
-        sql = "SELECT timestamp, service, level, message FROM log WHERE ts >= ? AND ts < ? "
+        cols = self._columns("log")
+        logger_col = "logger" if "logger" in cols else "NULL AS logger"
+        stack_col = "stack_trace" if "stack_trace" in cols else "NULL AS stack_trace"
+
+        sql = (
+            f"SELECT timestamp, service, level, message, {logger_col}, {stack_col} "
+            f"FROM log WHERE ts >= ? AND ts < ? "
+        )
         params: list[object] = [start, end]
         if service:
             sql += "AND service = ? "
@@ -246,6 +262,39 @@ class DuckDBDataSource(DataSource):
         params.append(limit)
 
         return [
-            LogEntry(timestamp=ts, service=svc, level=lvl, message=msg)
-            for ts, svc, lvl, msg in self._conn.execute(sql, params).fetchall()
+            LogEntry(
+                timestamp=ts, service=svc, level=lvl, message=msg,
+                logger=logger, stack_trace=stack,
+            )
+            for ts, svc, lvl, msg, logger, stack in self._conn.execute(sql, params).fetchall()
+        ]
+
+    def span_errors(
+        self, service: str | None, window: TimeWindow, *, top_n: int = 20
+    ) -> list[ErrorSignal]:
+        start, end, _, _ = self._resolve(window)
+        cols = self._columns("trace")
+        etype = "error_type" if "error_type" in cols else "'unknown' AS error_type"
+        estack = "any_value(error_stack)" if "error_stack" in cols else "NULL"
+
+        sql = (
+            f"SELECT service, endpoint, {etype}, count(*) AS n, {estack} AS stack "
+            f"FROM trace WHERE ts >= ? AND ts < ? "
+            f"AND TRY_CAST(is_error AS BOOLEAN) "
+        )
+        params: list[object] = [start, end]
+        if service:
+            sql += "AND service = ? "
+            params.append(service)
+        # group on whichever error_type expression resolved to
+        group_type = "error_type" if "error_type" in cols else "3"
+        sql += f"GROUP BY service, endpoint, {group_type} ORDER BY n DESC LIMIT ?"
+        params.append(top_n)
+
+        return [
+            ErrorSignal(
+                service=svc, endpoint=ep, error_type=etype_v or "unknown",
+                count=int(n), sample_stack=stack,
+            )
+            for svc, ep, etype_v, n, stack in self._conn.execute(sql, params).fetchall()
         ]
