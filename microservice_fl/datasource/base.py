@@ -108,6 +108,25 @@ class ErrorSignal:
 
 
 @dataclass(frozen=True)
+class OperationStat:
+    """A downstream operation (DB / RPC / cache span) under a slow Entry endpoint.
+
+    Produced by :meth:`DataSource.endpoint_breakdown`: within the traces of one
+    slow endpoint, spans are grouped by ``(component, operation)`` so the agent
+    can name the dominant slow/erroring leaf (a specific SQL, a Feign call, a
+    Redis op) as the root cause — **without reading any code**.
+    """
+
+    component: str
+    operation: str
+    count: int
+    error_count: int
+    avg_latency_ms: float
+    total_latency_ms: float
+    max_latency_ms: float
+
+
+@dataclass(frozen=True)
 class TimeWindow:
     """An inclusive ISO-8601 UTC time window plus an optional baseline window.
 
@@ -178,6 +197,17 @@ class DataSource(ABC):
 
         The top stack frame in ``sample_stack`` is the bridge from an error span
         to the throwing class/method.
+        """
+
+    @abstractmethod
+    def endpoint_breakdown(
+        self, service: str, endpoint: str, window: TimeWindow, *, top_n: int = 15
+    ) -> list[OperationStat]:
+        """Break a slow Entry endpoint into its downstream operations.
+
+        Within the endpoint's traces, group the non-Entry spans by
+        ``(component, operation)`` ranked by total time, so the dominant slow
+        leaf (SQL / RPC / cache) is visible as a code-free root cause.
         """
 
     # -- lifecycle ---------------------------------------------------------- #

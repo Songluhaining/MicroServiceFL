@@ -32,6 +32,7 @@ Do **not** ask for anything you can find with the tools.
 | `fl_scan_services` | rank services by error/latency lift vs baseline — the candidate set |
 | `fl_topology` | caller→callee RPC edges with per-edge latency/errors — **root vs victim** |
 | `fl_endpoint_anomaly` | within a service, the slow/failing Entry endpoint |
+| `fl_endpoint_breakdown` | break a slow endpoint into downstream ops (SQL/Feign/Redis) — code-free delay root cause |
 | `fl_span_errors` | error spans grouped by exception type, with stack if present → class+method |
 | `fl_error_logs` | ERROR/EXCEPTION logs incl. `logger` (class FQN) + stack if present |
 | `fl_map_endpoint` | endpoint → module/jar/service + **exact controller class/method** (jar-built index) |
@@ -54,10 +55,13 @@ Do **not** ask for anything you can find with the tools.
 4. **Get to the class/method** (grey-box: index + decompile, no source).
    - **Both fault kinds start the same way:** `fl_map_endpoint` on the slow /
      failing endpoint → the exact **controller class + method** and the jar
-     (resolved from the jar-built index). Then `fl_decompile_class` the
-     controller to see which `cn.iocoder.yudao.module.<m>.service.*Service` it
-     calls (conventionally the same method name), and `fl_decompile_class` that
-     `*ServiceImpl` to read the method body.
+     (resolved from the jar-built index — this needs no source and no
+     decompilation). To reach the `*ServiceImpl`: if the jar decompiles,
+     `fl_decompile_class` the controller to see which
+     `cn.iocoder.yudao.module.<m>.service.*Service` it calls, then that
+     `*ServiceImpl`. If it does not decompile, infer the impl by yudao
+     convention (`XxxController` → `XxxServiceImpl`, same method name) and note
+     the lower class confidence.
    - **Exception faults, if the stack is rich:** `fl_span_errors` /
      `fl_error_logs` may already name the business frame
      (`...Impl.<method>`) or the log `logger` (class FQN) — use it directly.
@@ -67,10 +71,19 @@ Do **not** ask for anything you can find with the tools.
 5. **Confirm the jar.** `fl_class_to_jar` on the class → `yudao-module-<m>-server`.
    A non-business (framework/starter) class means the fault is outside a module
    jar — say so.
-6. **Root cause.** Read the decompiled method. For delay: which call is slow (a
-   specific SQL, a per-item loop / N+1, a Feign call, a lock, an external
-   dependency). For exception: why a frame throws (null deref, bad cast,
-   validation, etc.).
+6. **Root cause.** Decompilation is **optional refinement, not required** — the
+   class/method is already localized from the index in step 4.
+   - **Delay (code-free, primary):** `fl_endpoint_breakdown` on the slow endpoint
+     names the dominant downstream op — a specific SQL, a Feign call, a Redis op,
+     a lock. That op *is* the root cause; you can state it with no source at all.
+   - **Refine if the jar decompiles:** `fl_decompile_class` the `*ServiceImpl` to
+     read the method body and pin the exact line / pattern (a per-item loop /
+     N+1, a missing index). If decompilation errors or returns garbage
+     (obfuscated / unavailable jar), **do not fail** — keep the breakdown-based
+     root cause and lower the `method`/fix confidence accordingly.
+   - **Exception:** the exception type + top business frame (from `fl_span_errors`
+     / `fl_error_logs`, or the decompiled method) explains why a frame throws
+     (null deref, bad cast, validation).
 7. **Fix.** Propose a concrete, minimal change at that method (guard the null,
    add an index / fix the slow query, add a timeout / circuit breaker, fix the
    lock scope, …). Reference the file/line you read.

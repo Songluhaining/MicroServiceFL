@@ -19,6 +19,7 @@ from microservice_fl.datasource.base import (
     EndpointStat,
     ErrorSignal,
     LogEntry,
+    OperationStat,
     ServiceStat,
     TimeWindow,
     TopologyEdge,
@@ -267,6 +268,44 @@ class DuckDBDataSource(DataSource):
                 logger=logger, stack_trace=stack,
             )
             for ts, svc, lvl, msg, logger, stack in self._conn.execute(sql, params).fetchall()
+        ]
+
+    # -- endpoint breakdown (code-free delay root cause) -------------------- #
+
+    def endpoint_breakdown(
+        self, service: str, endpoint: str, window: TimeWindow, *, top_n: int = 15
+    ) -> list[OperationStat]:
+        start, end, _, _ = self._resolve(window)
+        # Traces whose Entry span is this endpoint in the window, then aggregate
+        # their non-Entry spans by (component, operation) ranked by total time.
+        sql = (
+            f"WITH hit AS ("
+            f"  SELECT DISTINCT trace_id FROM trace "
+            f"  WHERE service = ? AND span_type = 'Entry' AND endpoint = ? "
+            f"  AND ts >= ? AND ts < ?"
+            f") "
+            f"SELECT coalesce(nullif(component, ''), '(local)') AS comp, endpoint AS op, "
+            f"count(*) AS n, sum({_ERR}) AS errs, avg(span_duration) AS avg_ms, "
+            f"sum(span_duration) AS total_ms, max(span_duration) AS max_ms "
+            f"FROM trace "
+            f"WHERE trace_id IN (SELECT trace_id FROM hit) AND span_type <> 'Entry' "
+            f"AND ts >= ? AND ts < ? "
+            f"GROUP BY comp, op ORDER BY total_ms DESC LIMIT ?"
+        )
+        params: list[object] = [service, endpoint, start, end, start, end, top_n]
+        return [
+            OperationStat(
+                component=comp,
+                operation=op,
+                count=int(n or 0),
+                error_count=int(errs or 0),
+                avg_latency_ms=float(avg_ms or 0.0),
+                total_latency_ms=float(total_ms or 0.0),
+                max_latency_ms=float(max_ms or 0.0),
+            )
+            for comp, op, n, errs, avg_ms, total_ms, max_ms in self._conn.execute(
+                sql, params
+            ).fetchall()
         ]
 
     def span_errors(

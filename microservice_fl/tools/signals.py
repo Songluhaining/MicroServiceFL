@@ -167,6 +167,53 @@ class SpanErrorsTool(BaseTool):
         return ToolResult(output="\n".join(blocks))
 
 
+class EndpointBreakdownInput(WindowInput):
+    service: str = Field(description="Root service, e.g. yudao-system")
+    endpoint: str = Field(
+        description="The slow Entry endpoint, e.g. POST:/admin-api/system/mail-account/delete-list"
+    )
+    top_n: int = Field(default=12, ge=1, le=50)
+
+
+class EndpointBreakdownTool(BaseTool):
+    name = "fl_endpoint_breakdown"
+    description = (
+        "Break a slow Entry endpoint into its downstream operations (DB / Feign / "
+        "Redis / local spans) over the window, ranked by total time. Names the "
+        "dominant slow or erroring leaf — e.g. a specific SQL count query or a Feign "
+        "call — as the root cause WITHOUT reading code. Use for delay faults after "
+        "fl_endpoint_anomaly, especially when the jar can't be decompiled."
+    )
+    input_model = EndpointBreakdownInput
+
+    def is_read_only(self, arguments: EndpointBreakdownInput) -> bool:
+        del arguments
+        return True
+
+    async def execute(
+        self, arguments: EndpointBreakdownInput, context: ToolExecutionContext
+    ) -> ToolResult:
+        del context
+        try:
+            ops = get_source().endpoint_breakdown(
+                arguments.service, arguments.endpoint, arguments.to_window(), top_n=arguments.top_n
+            )
+        except FileNotFoundError as exc:
+            return _missing_db_result(exc)
+        if not ops:
+            return ToolResult(
+                output=f"No downstream spans found under {arguments.endpoint} in the window "
+                "(check the service/endpoint spelling, e.g. from fl_endpoint_anomaly)."
+            )
+        lines = ["component | operation | calls | errs | total_ms | avg_ms | max_ms"]
+        for o in ops:
+            lines.append(
+                f"{o.component} | {o.operation} | {o.count} | {o.error_count} | "
+                f"{o.total_latency_ms:.0f} | {o.avg_latency_ms:.0f} | {o.max_latency_ms:.0f}"
+            )
+        return ToolResult(output="\n".join(lines))
+
+
 class ErrorLogsInput(WindowInput):
     service: str | None = Field(default=None, description="Optional service filter")
     pattern: str | None = Field(default=None, description="Optional substring to match in message")

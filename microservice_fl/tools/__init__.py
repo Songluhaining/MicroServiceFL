@@ -18,6 +18,7 @@ def build_fl_tools() -> list[BaseTool]:
     from microservice_fl.tools.signals import (
         ScanServicesTool,
         EndpointAnomalyTool,
+        EndpointBreakdownTool,
         TopologyTool,
         ErrorLogsTool,
         SpanErrorsTool,
@@ -27,6 +28,7 @@ def build_fl_tools() -> list[BaseTool]:
         ScanServicesTool(),
         TopologyTool(),
         EndpointAnomalyTool(),
+        EndpointBreakdownTool(),
         SpanErrorsTool(),
         ErrorLogsTool(),
         MapEndpointTool(),
