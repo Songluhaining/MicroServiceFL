@@ -5,14 +5,20 @@ These mappings are the backbone of fine-grained localization: observable signals
 labels and a real fix live at *module / jar / class / method* level. The yudao
 naming convention makes every hop deterministic:
 
-    service  yudao-mall-trade
+    service  yudao-mall-trade              (spring.application.name in telemetry)
     module   trade                         (the package segment after
                                              cn.iocoder.yudao.module.)
-    jar      yudao-module-trade-biz
+    jar      yudao-module-trade-server     (the deployable jar in yudao-cloud)
     class    cn.iocoder.yudao.module.trade.service.aftersale.AfterSaleLogServiceImpl
 
 RPC fan-out is equally self-describing: a Feign call to ``/rpc-api/system/...``
 targets the ``system`` module, i.e. the ``yudao-system`` service.
+
+Naming note: the collected dataset uses ``yudao-<module>`` / ``yudao-mall-<sub>``
+service names, while the yudao-cloud source builds jars named
+``yudao-module-<module>-server`` (business) and ``-api`` (Feign interfaces).
+Telemetry lookups key off the *service* name (left side); jar/decompile lookups
+key off the *jar* name (right side); this module bridges the two.
 """
 
 from __future__ import annotations
@@ -31,6 +37,14 @@ DATASET_DIR = Path(
 
 #: DuckDB database file built by ``python -m microservice_fl.ingest``.
 DB_PATH = Path(os.environ.get("OH_FL_DB", str(DATASET_DIR / "fl.duckdb")))
+
+#: Grey-box endpoint index (endpoint -> controller class/method/jar), built by
+#: ``python -m microservice_fl.greybox.build_index`` from the deployed jars.
+INDEX_PATH = Path(os.environ.get("OH_FL_INDEX", str(DATASET_DIR / "endpoint_index.json")))
+
+#: Root holding the built ``*-server`` jars (their ``target/`` dirs), used for
+#: on-demand class decompilation. Points at the yudao-cloud checkout by default.
+JARS_DIR = Path(os.environ.get("OH_FL_JARS", r"E:\Myself\赛宝实习\yudao-cloud"))
 
 #: Raw CSV file names inside ``DATASET_DIR``.
 CSV_FILES = {
@@ -80,8 +94,18 @@ def module_to_service(module: str) -> str | None:
 
 
 def module_to_jar(module: str) -> str:
-    """Return the business jar artifact id for a module short-name."""
-    return f"yudao-module-{module}-biz"
+    """Return the deployable business jar artifact id for a module short-name.
+
+    yudao-cloud names it ``yudao-module-<module>-server`` (the Spring Boot app);
+    the Feign interface jar is ``yudao-module-<module>-api`` (see
+    :func:`module_to_api_jar`).
+    """
+    return f"yudao-module-{module}-server"
+
+
+def module_to_api_jar(module: str) -> str:
+    """Return the Feign-interface (RPC) jar artifact id for a module short-name."""
+    return f"yudao-module-{module}-api"
 
 
 def service_to_jar(service: str) -> str | None:
