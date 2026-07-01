@@ -29,11 +29,19 @@ __all__ = [
 
 
 def get_default_source():  # type: ignore[no-untyped-def]
-    """Return a lazily-constructed default :class:`DuckDBDataSource`.
+    """Return the configured default DataSource (lazy import).
 
-    Imported lazily so that merely importing the package does not require duckdb
-    or an existing database file.
+    ``OH_FL_DATASOURCE`` selects the backend: ``duckdb`` (offline, ingested;
+    default) or ``skywalking`` (live OAP for trace + live CSV for metric/log).
+    Imported lazily so the package imports without duckdb/httpx or a database.
     """
+    from microservice_fl import config
+
+    if config.DATASOURCE == "skywalking":
+        from microservice_fl.datasource.skywalking_source import SkyWalkingDataSource
+
+        return SkyWalkingDataSource()
+
     from microservice_fl.datasource.duckdb_source import DuckDBDataSource
 
     return DuckDBDataSource()

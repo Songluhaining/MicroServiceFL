@@ -103,17 +103,42 @@ reference set did not — see `SCHEMA.md`). After collecting, sanity-check:
 `python scripts/eval_fault_localization.py --predictor heuristic` is the quick
 gate: if even the heuristic can't get service/jar, the data lacks signal.
 
-## Extending to real-time
+## Live mode (no ingest, never stale)
 
-Everything routes through the `DataSource` interface. To go from offline CSVs to
-live triage, implement `DataSource` against SkyWalking OAP / Prometheus / Loki
-and construct it in `datasource/__init__.get_default_source`. No tool, skill, or
-agent code changes. The trigger can then be an alert webhook that runs `/locate`
-and posts the result (e.g. via the ohmo gateway to Feishu/Slack).
+Everything routes through the `DataSource` interface, so live triage needs **no
+tool, skill, or agent changes** — only a different data source. Set
+`OH_FL_DATASOURCE=skywalking` and the tools query the incident window on demand:
+
+```bash
+export OH_FL_DATASOURCE=skywalking
+export OH_FL_SKYWALKING_URL=http://YOUR_OAP:12800/graphql   # trace / topology / errors
+export OH_FL_METRIC_CSV=/path/to/metric.csv                 # live psutil CSV (cpu/mem)
+export OH_FL_LOG_CSV=/path/to/log.csv                       # live log CSV (error logs)
+```
+
+`SkyWalkingDataSource` routes each modality to where it actually lives: **trace**
+signals (endpoint anomalies, topology, error spans, endpoint breakdown) come from
+OAP's GraphQL API; **metric** (cpu/mem) and **log** come straight from the
+continuously-appended collector CSVs, window-filtered via a transient DuckDB
+`read_csv` — always fresh, no ingest. Logs return empty gracefully if the CSV is
+absent. The trigger can be an alert webhook that runs `/locate` and posts the
+result (e.g. via the ohmo gateway to Feishu/Slack).
+
+> SkyWalking's GraphQL schema shifts between major versions; the queries target
+> 9.x/10.x and are centralized in `datasource/skywalking_source.py::_Q`. If your
+> OAP rejects a query, adjust them there and smoke-test one call
+> (`service_anomalies` over a recent window) before running `/locate`.
 
 ## Configuration (env vars)
 
 | var | default | meaning |
 |-----|---------|---------|
 | `OH_FL_DATASET_DIR` | `E:\Myself\赛宝实习\dataset` | raw CSV directory |
-| `OH_FL_DB` | `<dataset>/fl.duckdb` | DuckDB database the tools query |
+| `OH_FL_DB` | `<dataset>/fl.duckdb` | DuckDB database the tools query (offline) |
+| `OH_FL_INDEX` | `<dataset>/endpoint_index.json` | grey-box endpoint→class index |
+| `OH_FL_JARS` | `E:\Myself\赛宝实习\yudao-cloud` | deployed jars, for decompilation |
+| `OH_FL_CFR` | `~/tools/cfr-0.152.jar` | CFR decompiler jar |
+| `OH_FL_DATASOURCE` | `duckdb` | `duckdb` (offline) or `skywalking` (live) |
+| `OH_FL_SKYWALKING_URL` | `http://127.0.0.1:12800/graphql` | OAP GraphQL endpoint (live) |
+| `OH_FL_METRIC_CSV` | `<dataset>/metric.csv` | live cpu/mem CSV (live mode) |
+| `OH_FL_LOG_CSV` | `<dataset>/log.csv` | live log CSV (live mode) |

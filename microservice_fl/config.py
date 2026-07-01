@@ -51,6 +51,24 @@ JARS_DIR = Path(os.environ.get("OH_FL_JARS", r"E:\Myself\赛宝实习\yudao-clou
 #: (org.benf:cfr) or https://www.benf.org/other/cfr/.
 CFR_JAR = Path(os.environ.get("OH_FL_CFR", str(Path.home() / "tools" / "cfr-0.152.jar")))
 
+# --------------------------------------------------------------------------- #
+# Data source selection (offline DuckDB vs live SkyWalking)
+# --------------------------------------------------------------------------- #
+
+#: Which DataSource the tools query: ``duckdb`` (offline, ingested) or
+#: ``skywalking`` (live OAP for trace + live CSV for metric/log).
+DATASOURCE = os.environ.get("OH_FL_DATASOURCE", "duckdb").strip().lower()
+
+#: SkyWalking OAP GraphQL endpoint (live trace/topology/metrics query).
+SKYWALKING_URL = os.environ.get("OH_FL_SKYWALKING_URL", "http://127.0.0.1:12800/graphql")
+
+#: Live-appended CSVs the psutil / log collectors write. In ``skywalking`` mode
+#: the metric (cpu/mem) and log modalities are read directly from these files,
+#: window-filtered, with no ingest (they are always fresh). Empty string = skip
+#: that modality.
+METRIC_CSV = os.environ.get("OH_FL_METRIC_CSV", str(DATASET_DIR / "metric.csv"))
+LOG_CSV = os.environ.get("OH_FL_LOG_CSV", str(DATASET_DIR / "log.csv"))
+
 #: Raw CSV file names inside ``DATASET_DIR``.
 CSV_FILES = {
     "ground_truth": "ground_truth.csv",
