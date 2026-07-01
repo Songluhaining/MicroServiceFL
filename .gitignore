@@ -40,3 +40,6 @@ microservice_fl/data/
 .DS_Store
 Thumbs.db
 uv.lock
+
+# grey-box build logs
+build_*.log
