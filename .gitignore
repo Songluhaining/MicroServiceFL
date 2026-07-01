@@ -43,3 +43,7 @@ uv.lock
 
 # grey-box build logs
 build_*.log
+
+# local run logs
+locate_*.log
+repl_demo.log
