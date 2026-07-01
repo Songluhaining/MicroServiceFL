@@ -14,6 +14,7 @@ def build_fl_tools() -> list[BaseTool]:
     """Instantiate every fault-localization tool."""
     from microservice_fl.tools.cases import ListCasesTool, GetCaseTool
     from microservice_fl.tools.codemap import MapEndpointTool, ClassToJarTool
+    from microservice_fl.tools.decompile import DecompileClassTool
     from microservice_fl.tools.signals import (
         ScanServicesTool,
         EndpointAnomalyTool,
@@ -30,6 +31,7 @@ def build_fl_tools() -> list[BaseTool]:
         ErrorLogsTool(),
         MapEndpointTool(),
         ClassToJarTool(),
+        DecompileClassTool(),
         ListCasesTool(),
         GetCaseTool(),
     ]

@@ -46,6 +46,11 @@ INDEX_PATH = Path(os.environ.get("OH_FL_INDEX", str(DATASET_DIR / "endpoint_inde
 #: on-demand class decompilation. Points at the yudao-cloud checkout by default.
 JARS_DIR = Path(os.environ.get("OH_FL_JARS", r"E:\Myself\赛宝实习\yudao-cloud"))
 
+#: CFR decompiler jar, used by ``fl_decompile_class`` to read a single class from
+#: its deployed jar (grey-box: source-free). Download once from Maven Central
+#: (org.benf:cfr) or https://www.benf.org/other/cfr/.
+CFR_JAR = Path(os.environ.get("OH_FL_CFR", str(Path.home() / "tools" / "cfr-0.152.jar")))
+
 #: Raw CSV file names inside ``DATASET_DIR``.
 CSV_FILES = {
     "ground_truth": "ground_truth.csv",
