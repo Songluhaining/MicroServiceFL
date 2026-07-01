@@ -23,6 +23,17 @@ import asyncio
 import sys
 
 
+def _force_utf8_io() -> None:
+    """Make stdin/stdout/stderr UTF-8 so console codepage quirks (and stray
+    bytes from decompiled/GBK tool output) can't inject surrogate chars that
+    later crash JSON encoding or session-memory writes."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
 def _preview(text: str, limit: int = 600) -> str:
     text = (text or "").strip().replace("\r", "")
     if len(text) <= limit:
@@ -98,18 +109,22 @@ async def _run() -> None:
                 continue
             if line in {"/exit", "/quit"}:
                 break
-            await handle_line(
-                bundle,
-                line,
-                print_system=_print_system,
-                render_event=_render,
-                clear_output=_clear,
-            )
+            try:
+                await handle_line(
+                    bundle,
+                    line,
+                    print_system=_print_system,
+                    render_event=_render,
+                    clear_output=_clear,
+                )
+            except Exception as exc:  # keep the REPL alive across a bad turn
+                print(f"\n[turn failed] {type(exc).__name__}: {exc}", flush=True)
     finally:
         await close_runtime(bundle)
 
 
 def main() -> None:
+    _force_utf8_io()
     try:
         asyncio.run(_run())
     except KeyboardInterrupt:

@@ -75,7 +75,8 @@ def decompile_class(
     pat = re.escape(class_fqn).replace(r"\.", "[./]") + r"(\$[\w$]+)?"
     cmd = [_java(), "-jar", str(cfr), str(jar), "--jarfilter", pat]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=120)
     except subprocess.TimeoutExpired:
         return None, f"CFR timed out decompiling {class_fqn}"
     src = proc.stdout
