@@ -279,6 +279,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="deepseek-ai/DeepSeek-V4-Flash",
             base_url="https://api-inference.modelscope.cn/v1",
         ),
+        "deepseek": ProviderProfile(
+            label="DeepSeek",
+            provider="deepseek",
+            api_format="openai",
+            auth_source="deepseek_api_key",
+            default_model="deepseek-chat",
+            base_url="https://api.deepseek.com",
+        ),
     }
 
 
@@ -369,6 +377,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "minimax_api_key": "minimax",
         "nvidia_api_key": "nvidia",
         "modelscope_api_key": "modelscope",
+        "deepseek_api_key": "deepseek",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -389,6 +398,7 @@ def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
         "minimax_api_key": ("OPENHARNESS_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
         "nvidia_api_key": ("OPENHARNESS_NVIDIA_API_KEY", "NVIDIA_API_KEY"),
         "modelscope_api_key": ("OPENHARNESS_MODELSCOPE_API_KEY", "MODELSCOPE_API_KEY"),
+        "deepseek_api_key": ("OPENHARNESS_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
     }
     return mapping.get(auth_source, ())
 
