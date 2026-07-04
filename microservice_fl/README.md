@@ -39,24 +39,55 @@ separates root cause from victims; trace error stacks and log `logger` give the
 class/method for **exception** faults; **delay** faults reach class/method by
 mapping the slow endpoint to the yudao source.
 
-## Setup
+## Install
+
+One-click (creates the venv, installs `.[fl]`, fetches CFR, runs `fl doctor`):
+
+```powershell
+.\install-fl.ps1        # Windows       (bash: ./install-fl.sh)
+```
+
+Or manually: `pip install -e ".[fl]"` (or `uv sync --extra fl`).
+
+Then point a DeepSeek at the agent — the official API:
 
 ```bash
-# 1. install the harness + this add-on's deps (duckdb, pandas)
-pip install -e ".[fl]"            # or: uv sync --extra fl
+export DEEPSEEK_API_KEY=sk-...
+oh provider use deepseek        # built-in profile -> https://api.deepseek.com
+```
 
-# 2. point a local DeepSeek (vLLM / SGLang / Ollama, OpenAI-compatible) at oh
-oh provider add deepseek-local \
-  --label "Local DeepSeek" --provider deepseek \
-  --api-format openai --auth-source openai_api_key \
-  --model deepseek-v3 \
-  --base-url http://YOUR_SERVER:8000/v1
+or a locally-hosted DeepSeek (vLLM/SGLang/Ollama, OpenAI-compatible):
+
+```bash
+oh provider add deepseek-local --provider deepseek --api-format openai \
+  --auth-source openai_api_key --model deepseek-v3 --base-url http://YOUR_SERVER:8000/v1
 oh provider use deepseek-local
 ```
 
-Use **DeepSeek-V3** as the driver (reliable tool-calling, which the agent leans
-on heavily). R1-style reasoning models can be flaky with multi-tool loops; if
-you want R1, reserve it for the final root-cause/fix reasoning step.
+Use **DeepSeek-V3** (`deepseek-chat`) as the driver — reliable tool-calling.
+R1-style models can be flaky with multi-tool loops.
+
+## The `fl` command
+
+One entry point (`python -m microservice_fl` or `fl` after install):
+
+```bash
+fl doctor                     # check build + run readiness
+fl targets                    # list target-system profiles, show the active one
+fl build-index --jars <dir>   # deployed jars -> endpoint_index.json (localization)
+fl ingest --dataset <dir>     # collected CSVs -> fl.duckdb (offline mode)
+fl init --jars <dir> --data <dir>   # both, in one step
+fl repl                       # interactive localization (watch each tool call)
+fl locate "time=... symptom=..."    # one-shot
+```
+
+### Onboarding a different system
+
+The naming conventions (service→module→jar→package, API prefixes) live in a
+**target profile**, not code. yudao-cloud is the default. For another Spring
+Cloud system, copy `microservice_fl/targets/yudao-cloud.example.json`, edit the
+mappings, drop it at `~/.openharness/fl_targets/<name>.json`, and select it with
+`OH_FL_TARGET=<name>` — no code change.
 
 ## Quickstart (on the demo dataset, no re-collection needed)
 
