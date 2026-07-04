@@ -1,0 +1,20 @@
+{
+  "name": "yudao-cloud",
+  "package_prefix": "cn.iocoder.yudao.module.",
+  "jar_template": "yudao-module-{module}-server",
+  "api_jar_template": "yudao-module-{module}-api",
+  "admin_api_prefix": "admin-api",
+  "rpc_api_prefix": "rpc-api",
+  "module_by_service": {
+    "yudao-system": "system",
+    "yudao-infra": "infra",
+    "yudao-bpm": "bpm",
+    "yudao-crm": "crm",
+    "yudao-erp": "erp",
+    "yudao-member": "member",
+    "yudao-mall-product": "product",
+    "yudao-mall-promotion": "promotion",
+    "yudao-mall-statistics": "statistics",
+    "yudao-mall-trade": "trade"
+  }
+}

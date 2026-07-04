@@ -79,56 +79,43 @@ CSV_FILES = {
 }
 
 # --------------------------------------------------------------------------- #
-# Service <-> module mapping
+# Service <-> module <-> jar <-> class mapping (delegated to the target profile)
 # --------------------------------------------------------------------------- #
-# Canonical list of deployed services and the yudao *module* short-name each one
-# corresponds to. Most services are ``yudao-<module>``; the mall services carry a
-# ``mall-`` infix in the service name while the module short-name stays bare
-# (e.g. service ``yudao-mall-trade`` <-> module ``trade``).
+# The naming conventions are not hardcoded here — they come from the active
+# :class:`~microservice_fl.target.TargetProfile`, selected by ``OH_FL_TARGET``
+# (default: the built-in ``yudao-cloud`` profile). This keeps the public function
+# names below stable while letting a different microservice system be onboarded
+# with a JSON profile instead of code changes.
 
-MODULE_BY_SERVICE: dict[str, str] = {
-    "yudao-system": "system",
-    "yudao-infra": "infra",
-    "yudao-bpm": "bpm",
-    "yudao-crm": "crm",
-    "yudao-erp": "erp",
-    "yudao-member": "member",
-    "yudao-mall-product": "product",
-    "yudao-mall-promotion": "promotion",
-    "yudao-mall-statistics": "statistics",
-    "yudao-mall-trade": "trade",
-}
+import functools
 
-#: Reverse lookup, module short-name -> service name.
-SERVICE_BY_MODULE: dict[str, str] = {m: s for s, m in MODULE_BY_SERVICE.items()}
 
-#: Package prefix every business class shares.
-_MODULE_PKG_PREFIX = "cn.iocoder.yudao.module."
+@functools.lru_cache(maxsize=1)
+def active_target():  # type: ignore[no-untyped-def]
+    """Return the active TargetProfile (cached; honours ``OH_FL_TARGET``)."""
+    from microservice_fl.target import load_target
+
+    return load_target()
 
 
 def service_to_module(service: str) -> str | None:
     """Return the module short-name for a service, or ``None`` if unknown."""
-    return MODULE_BY_SERVICE.get(service)
+    return active_target().service_to_module(service)
 
 
 def module_to_service(module: str) -> str | None:
     """Return the service name for a module short-name, or ``None``."""
-    return SERVICE_BY_MODULE.get(module)
+    return active_target().module_to_service(module)
 
 
 def module_to_jar(module: str) -> str:
-    """Return the deployable business jar artifact id for a module short-name.
-
-    yudao-cloud names it ``yudao-module-<module>-server`` (the Spring Boot app);
-    the Feign interface jar is ``yudao-module-<module>-api`` (see
-    :func:`module_to_api_jar`).
-    """
-    return f"yudao-module-{module}-server"
+    """Return the deployable business jar artifact id for a module short-name."""
+    return active_target().module_to_jar(module)
 
 
 def module_to_api_jar(module: str) -> str:
     """Return the Feign-interface (RPC) jar artifact id for a module short-name."""
-    return f"yudao-module-{module}-api"
+    return active_target().module_to_api_jar(module)
 
 
 def service_to_jar(service: str) -> str | None:
@@ -140,16 +127,11 @@ def service_to_jar(service: str) -> str | None:
 def class_fqn_to_module(class_fqn: str) -> str | None:
     """Extract the module short-name from a fully-qualified class name.
 
-    ``cn.iocoder.yudao.module.trade.service...`` -> ``trade``. Returns ``None``
-    when the class is not under the standard module package (e.g. framework or
-    third-party code), which is itself a useful signal that the fault is not in a
+    Returns ``None`` when the class is not under the profile's module package
+    (e.g. framework/third-party code) — itself a signal that the fault is not in a
     business module jar.
     """
-    if not class_fqn.startswith(_MODULE_PKG_PREFIX):
-        return None
-    rest = class_fqn[len(_MODULE_PKG_PREFIX):]
-    head = rest.split(".", 1)[0]
-    return head or None
+    return active_target().class_fqn_to_module(class_fqn)
 
 
 def class_fqn_to_jar(class_fqn: str) -> str | None:
@@ -159,15 +141,5 @@ def class_fqn_to_jar(class_fqn: str) -> str | None:
 
 
 def rpc_endpoint_to_service(endpoint: str) -> str | None:
-    """Map a Feign RPC endpoint to the callee service.
-
-    ``/rpc-api/system/oauth2/token/check`` -> ``yudao-system``. The second path
-    segment is the module short-name. Returns ``None`` when the endpoint is not a
-    recognizable ``/rpc-api/<module>/...`` path.
-    """
-    if not endpoint:
-        return None
-    parts = [p for p in endpoint.split("/") if p]
-    if len(parts) >= 2 and parts[0] == "rpc-api":
-        return module_to_service(parts[1])
-    return None
+    """Map a Feign RPC endpoint (``/rpc-api/<module>/...``) to the callee service."""
+    return active_target().rpc_endpoint_to_service(endpoint)
