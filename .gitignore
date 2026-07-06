@@ -47,3 +47,11 @@ build_*.log
 # local run logs
 locate_*.log
 repl_demo.log
+
+# deployment-local config + secrets
+fl.env
+deepseek_key.txt
+/python/
+py311*.tar.gz
+wheels/
+vendor/

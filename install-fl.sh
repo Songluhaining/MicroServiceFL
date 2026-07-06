@@ -22,6 +22,14 @@ if [ ! -x "$VENV_PY" ]; then
   "$PYTHON" -m venv "$VENV"
 fi
 
+# 1b. this project needs Python >= 3.10 — fail fast with a clear message
+if ! "$VENV_PY" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)'; then
+  echo "ERROR: this project needs Python >= 3.10, but the venv is $("$VENV_PY" -V)." >&2
+  echo "Re-run with a newer interpreter, e.g.:" >&2
+  echo "  rm -rf '$VENV' && PYTHON=/path/to/python3.11 bash install-fl.sh" >&2
+  exit 1
+fi
+
 # 2. install the package + fl extra
 echo "installing package (.[fl]) ..."
 "$VENV_PY" -m pip install --quiet --upgrade pip

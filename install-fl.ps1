@@ -22,6 +22,15 @@ if (-not (Test-Path $VenvPy)) {
     & $Python -m venv $Venv
 }
 
+# 1b. this project needs Python >= 3.10 — fail fast with a clear message
+& $VenvPy -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    $v = (& $VenvPy -V)
+    Write-Host "ERROR: this project needs Python >= 3.10, but the venv is $v." -ForegroundColor Red
+    Write-Host "Re-run with a newer interpreter: Remove-Item -Recurse -Force '$Venv'; .\install-fl.ps1 -Python C:\path\to\python.exe" -ForegroundColor Red
+    exit 1
+}
+
 # 2. install the package + fl extra (OpenHarness runtime + duckdb/pandas)
 Write-Host "installing package (.[fl]) ..." -ForegroundColor Yellow
 & $VenvPy -m pip install --quiet --upgrade pip
