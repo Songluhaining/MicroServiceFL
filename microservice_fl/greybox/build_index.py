@@ -61,16 +61,21 @@ def _compile_scanner(workdir: Path) -> Path:
 
 
 def _find_server_jars(jars_root: Path) -> list[Path]:
-    """Locate built ``*-server.jar`` artifacts (skip sources/original)."""
-    result: list[Path] = []
+    """Locate ``*-server.jar`` artifacts under a dir.
+
+    Works for both a Maven checkout (jars in ``.../target/``) and a server's
+    flat directory of *deployed* jars (e.g. ``/opt/yudao/*.jar``). When the same
+    artifact exists in more than one place, prefer the ``target/`` build.
+    """
+    by_name: dict[str, Path] = {}
     for p in jars_root.rglob("*-server.jar"):
         n = p.name
-        if n.endswith((".original",)) or "sources" in n or "javadoc" in n:
+        if n.endswith(".original") or "sources" in n or "javadoc" in n:
             continue
-        # prefer target/ artifacts
-        if p.parent.name == "target":
-            result.append(p)
-    return sorted(set(result))
+        prev = by_name.get(n)
+        if prev is None or (p.parent.name == "target" and prev.parent.name != "target"):
+            by_name[n] = p
+    return sorted(by_name.values())
 
 
 def _artifact_name(jar: Path) -> str:
