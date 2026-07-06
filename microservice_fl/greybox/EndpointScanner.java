@@ -71,7 +71,11 @@ public class EndpointScanner {
 
         List<Path> classFiles;
         try (Stream<Path> s = Files.walk(classesDir)) {
-            classFiles = s.filter(p -> p.toString().endsWith("Controller.class"))
+            // admin/app controllers (*Controller) and Feign RPC providers (*ApiImpl)
+            classFiles = s.filter(p -> {
+                        String n = p.toString();
+                        return n.endsWith("Controller.class") || n.endsWith("ApiImpl.class");
+                    })
                           .collect(Collectors.toList());
         }
 
@@ -84,7 +88,10 @@ public class EndpointScanner {
                 Class<?> c = Class.forName(fqn, false, loader);
                 if (!isController(c)) continue;
                 String base = classLevelPath(c);
-                String prefix = apiPrefix(fqn);
+                // The prefix may already be baked into the (interface) class-level
+                // path — e.g. an RPC provider's /rpc-api/<module>. Only add a
+                // package-derived prefix (/admin-api, /app-api) when it isn't.
+                String prefix = hasApiPrefix(base) ? "" : apiPrefix(fqn);
                 for (Method m : c.getDeclaredMethods()) {
                     emitMethod(out, c, m, base, prefix, jarName);
                 }
@@ -110,8 +117,29 @@ public class EndpointScanner {
         return "";
     }
 
-    private static String classLevelPath(Class<?> c) {
-        for (Annotation a : c.getAnnotations()) {
+    private static boolean hasApiPrefix(String path) {
+        return path.startsWith("/rpc-api") || path.startsWith("/admin-api")
+                || path.startsWith("/app-api");
+    }
+
+    // All interfaces a class implements, transitively (RPC providers carry their
+    // path annotations on the Feign interface, not the impl).
+    private static java.util.Set<Class<?>> allInterfaces(Class<?> c) {
+        java.util.Set<Class<?>> acc = new java.util.LinkedHashSet<>();
+        for (Class<?> k = c; k != null; k = k.getSuperclass()) {
+            collectInterfaces(k, acc);
+        }
+        return acc;
+    }
+
+    private static void collectInterfaces(Class<?> c, java.util.Set<Class<?>> acc) {
+        for (Class<?> i : c.getInterfaces()) {
+            if (acc.add(i)) collectInterfaces(i, acc);
+        }
+    }
+
+    private static String requestMappingPath(Annotation[] anns) {
+        for (Annotation a : anns) {
             if (a.annotationType().getSimpleName().equals("RequestMapping")) {
                 String[] v = readPaths(a);
                 if (v.length > 0) return norm(v[0]);
@@ -120,9 +148,29 @@ public class EndpointScanner {
         return "";
     }
 
+    // Class-level base path: the class's own @RequestMapping, else any interface's.
+    private static String classLevelPath(Class<?> c) {
+        String p = requestMappingPath(c.getAnnotations());
+        if (!p.isEmpty()) return p;
+        for (Class<?> iface : allInterfaces(c)) {
+            p = requestMappingPath(iface.getAnnotations());
+            if (!p.isEmpty()) return p;
+        }
+        return "";
+    }
+
     private static void emitMethod(StringBuilder out, Class<?> c, Method m,
                                    String base, String prefix, String jarName) {
-        for (Annotation a : m.getAnnotations()) {
+        // Mapping annotations may be on the method itself or, for an RPC provider
+        // impl, on the overridden interface method.
+        List<Annotation> anns = new ArrayList<>(Arrays.asList(m.getAnnotations()));
+        for (Class<?> iface : allInterfaces(c)) {
+            try {
+                anns.addAll(Arrays.asList(
+                        iface.getMethod(m.getName(), m.getParameterTypes()).getAnnotations()));
+            } catch (NoSuchMethodException ignore) { }
+        }
+        for (Annotation a : anns) {
             String simple = a.annotationType().getSimpleName();
             String verb = verbFor(simple);
             if (verb == null) continue;

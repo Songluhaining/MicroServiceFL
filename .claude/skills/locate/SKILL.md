@@ -99,6 +99,10 @@ Do **not** ask for anything you can find with the tools.
 
 ## Output — always end with this JSON block
 
+Aim for **10–20 tool calls total**. Do not re-run a tool with the same arguments
+you already have the answer for. Once you emit the JSON block below, **stop
+immediately** — do not call more tools, and do not repeat the report.
+
 ```json
 {
   "root_service": "yudao-...",
