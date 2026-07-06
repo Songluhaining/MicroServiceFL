@@ -53,8 +53,8 @@ def _parse(ts: str) -> datetime:
 
 
 def _sw_time(dt: datetime) -> str:
-    """SkyWalking Duration string at SECOND step: ``yyyy-MM-dd HHmmss``."""
-    return dt.strftime("%Y-%m-%d %H%M%S")
+    """SkyWalking Duration string at MINUTE step: ``yyyy-MM-dd HHmm``."""
+    return dt.strftime("%Y-%m-%d %H%M")
 
 
 #: Centralized GraphQL queries (verify names against your OAP version).
@@ -94,12 +94,16 @@ class SkyWalkingDataSource(DataSource):
         *,
         metric_csv: str | None = None,
         log_csv: str | None = None,
+        tz_offset_hours: float | None = None,
         page_size: int = 400,
         timeout: float = 30.0,
     ) -> None:
         self._url = base_url or config.SKYWALKING_URL
         self._metric_csv = metric_csv if metric_csv is not None else config.METRIC_CSV
         self._log_csv = log_csv if log_csv is not None else config.LOG_CSV
+        self._tz_offset = (
+            tz_offset_hours if tz_offset_hours is not None else config.SKYWALKING_TZ_OFFSET
+        )
         self._page = page_size
         self._client = httpx.Client(timeout=timeout)
 
@@ -117,7 +121,9 @@ class SkyWalkingDataSource(DataSource):
         return payload.get("data", {})
 
     def _duration(self, start: datetime, end: datetime) -> dict:
-        return {"start": _sw_time(start), "end": _sw_time(end), "step": "SECOND"}
+        # OAP interprets Duration in UTC; shift the (possibly local) window back.
+        off = timedelta(hours=self._tz_offset)
+        return {"start": _sw_time(start - off), "end": _sw_time(end - off), "step": "MINUTE"}
 
     def _resolve(self, window: TimeWindow) -> tuple[datetime, datetime, datetime, datetime]:
         start, end = _parse(window.start), _parse(window.end)

@@ -62,6 +62,15 @@ DATASOURCE = os.environ.get("OH_FL_DATASOURCE", "duckdb").strip().lower()
 #: SkyWalking OAP GraphQL endpoint (live trace/topology/metrics query).
 SKYWALKING_URL = os.environ.get("OH_FL_SKYWALKING_URL", "http://127.0.0.1:12800/graphql")
 
+#: Hours the *input* time window is ahead of UTC. SkyWalking OAP interprets its
+#: Duration in UTC (commonly), so if you type incident windows in local time set
+#: this to your offset (e.g. 8 for China/CST) and the SkyWalking queries are
+#: converted to UTC for you. 0 = you already type UTC.
+try:
+    SKYWALKING_TZ_OFFSET = float(os.environ.get("OH_FL_SKYWALKING_TZ_OFFSET", "0"))
+except ValueError:
+    SKYWALKING_TZ_OFFSET = 0.0
+
 #: Live-appended CSVs the psutil / log collectors write. In ``skywalking`` mode
 #: the metric (cpu/mem) and log modalities are read directly from these files,
 #: window-filtered, with no ingest (they are always fresh). Empty string = skip
