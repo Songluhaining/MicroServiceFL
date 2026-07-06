@@ -343,6 +343,8 @@ class SkyWalkingDataSource(DataSource):
     ) -> dict[str, tuple[float | None, float | None]]:
         if not self._metric_csv or not Path(self._metric_csv).exists():
             return {}
+        off = timedelta(hours=self._tz_offset)
+        start, end = start - off, end - off  # window -> UTC (CSVs store UTC ts)
         con = self._csv_conn()
         try:
             rows = con.execute(
@@ -369,6 +371,8 @@ class SkyWalkingDataSource(DataSource):
         if not self._log_csv or not Path(self._log_csv).exists():
             return []  # logs not centralized/available -> graceful empty
         start, end, _, _ = self._resolve(window)
+        off = timedelta(hours=self._tz_offset)
+        start, end = start - off, end - off  # window -> UTC (CSVs store UTC ts)
         con = self._csv_conn()
         sql = (
             "SELECT timestamp, service, level, message FROM "

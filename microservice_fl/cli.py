@@ -134,6 +134,46 @@ def doctor_cmd() -> None:
     (_ok if _provider_ready() else _warn)("provider auth")
 
 
+@app.command("collect")
+def collect_cmd(
+    metric: bool = typer.Option(False, "--metric", help="collect psutil cpu/mem -> metric.csv"),
+    log: bool = typer.Option(False, "--log", help="tail service logs -> log.csv"),
+    interval: int = typer.Option(None, "--interval", help="sample interval seconds"),
+) -> None:
+    """Run the real-time metric/log collectors (feed the live CSVs; Ctrl-C stops).
+
+    With neither flag, runs both. Point OH_FL_METRIC_CSV / OH_FL_LOG_CSV /
+    OH_FL_YUDAO_LOG_DIR at your paths first. Typically run under nohup.
+    """
+    import threading
+    import time
+
+    from microservice_fl.collectors import discover_pids, run_logs, run_metrics
+
+    if not metric and not log:
+        metric = log = True
+    pids = discover_pids()
+    typer.echo(f"discovered {len(pids)} service PIDs: {sorted(pids)}")
+    if not pids:
+        _warn("no service PIDs found (is `jps` on PATH and are the services running?)")
+
+    stop = threading.Event()
+    threads = []
+    if metric:
+        threads.append(threading.Thread(target=run_metrics, args=(interval, stop), daemon=True))
+    if log:
+        threads.append(threading.Thread(target=run_logs, args=(interval, stop), daemon=True))
+    for t in threads:
+        t.start()
+    typer.echo(f"collecting (metric={metric} log={log}) -> {config.METRIC_CSV} / {config.LOG_CSV}")
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(1)
+    except KeyboardInterrupt:
+        stop.set()
+        typer.echo("\nstopped")
+
+
 @app.command("repl")
 def repl_cmd() -> None:
     """Launch the interactive localizer (prints each tool call; no Node needed)."""

@@ -74,9 +74,20 @@ except ValueError:
 #: Live-appended CSVs the psutil / log collectors write. In ``skywalking`` mode
 #: the metric (cpu/mem) and log modalities are read directly from these files,
 #: window-filtered, with no ingest (they are always fresh). Empty string = skip
-#: that modality.
+#: that modality. These are also the outputs of ``fl collect`` (see
+#: ``microservice_fl.collectors``).
 METRIC_CSV = os.environ.get("OH_FL_METRIC_CSV", str(DATASET_DIR / "metric.csv"))
 LOG_CSV = os.environ.get("OH_FL_LOG_CSV", str(DATASET_DIR / "log.csv"))
+
+#: Directory where the target system writes its per-service ``<service>.log``
+#: files — the source the log collector tails. Deployment-specific.
+YUDAO_LOG_DIR = os.environ.get("OH_FL_YUDAO_LOG_DIR", str(DATASET_DIR / "yudao-logs"))
+
+#: How often (seconds) ``fl collect`` samples metrics / polls logs.
+try:
+    COLLECT_INTERVAL_SEC = int(os.environ.get("OH_FL_COLLECT_INTERVAL", "30"))
+except ValueError:
+    COLLECT_INTERVAL_SEC = 30
 
 #: Raw CSV file names inside ``DATASET_DIR``.
 CSV_FILES = {
