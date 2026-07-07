@@ -89,6 +89,14 @@ try:
 except ValueError:
     COLLECT_INTERVAL_SEC = 30
 
+#: How many hours of metric/log CSV to keep — older rows are pruned by
+#: ``fl collect`` so the live CSVs don't grow without bound (trace retention is
+#: SkyWalking's own recordDataTTL). 0 disables pruning.
+try:
+    RETENTION_HOURS = int(os.environ.get("OH_FL_RETENTION_HOURS", "24"))
+except ValueError:
+    RETENTION_HOURS = 24
+
 #: Raw CSV file names inside ``DATASET_DIR``.
 CSV_FILES = {
     "ground_truth": "ground_truth.csv",

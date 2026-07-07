@@ -149,6 +149,7 @@ def collect_cmd(
     import time
 
     from microservice_fl.collectors import discover_pids, run_logs, run_metrics
+    from microservice_fl.collectors.core import run_retention
 
     if not metric and not log:
         metric = log = True
@@ -163,8 +164,11 @@ def collect_cmd(
         threads.append(threading.Thread(target=run_metrics, args=(interval, stop), daemon=True))
     if log:
         threads.append(threading.Thread(target=run_logs, args=(interval, stop), daemon=True))
+    # prune old rows so the live CSVs stay bounded (OH_FL_RETENTION_HOURS)
+    threads.append(threading.Thread(target=run_retention, args=(None, 3600, stop), daemon=True))
     for t in threads:
         t.start()
+    typer.echo(f"retention: keeping last {config.RETENTION_HOURS}h of metric/log CSV")
     typer.echo(f"collecting (metric={metric} log={log}) -> {config.METRIC_CSV} / {config.LOG_CSV}")
     try:
         while any(t.is_alive() for t in threads):

@@ -13,10 +13,14 @@ import os
 import re
 import subprocess
 import threading
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from microservice_fl import config
+
+#: one lock per CSV path so appends and retention-pruning don't interleave
+_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
 
 _METRIC_HEADER = [
     "timestamp", "service", "level", "cpu_pct", "mem_pct", "mem_used", "mem_avail",
@@ -44,9 +48,52 @@ def _init_csv(path: str, header: list[str]) -> None:
 
 
 def _append(path: str, row: list) -> None:
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(row)
-        f.flush()
+    with _LOCKS[path]:
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(row)
+            f.flush()
+
+
+def prune_csv(path: str, retention_hours: int) -> int:
+    """Drop rows older than ``retention_hours`` (by the UTC timestamp column).
+
+    Returns the number of rows kept. ISO ``…Z`` timestamps sort lexicographically,
+    so a string compare against the cutoff is exact.
+    """
+    p = Path(path)
+    if retention_hours <= 0 or not p.exists():
+        return -1
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    with _LOCKS[path]:
+        with open(p, encoding="utf-8", newline="") as f:
+            rows = f.readlines()
+        if len(rows) <= 1:
+            return max(0, len(rows) - 1)
+        kept = [r for r in rows[1:] if r.split(",", 1)[0] >= cutoff]
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(rows[0])
+            f.writelines(kept)
+        tmp.replace(p)
+    return len(kept)
+
+
+def run_retention(retention_hours: int | None = None, interval: int = 3600,
+                  stop: threading.Event | None = None) -> None:
+    """Periodically prune the metric/log CSVs to the retention window."""
+    retention_hours = retention_hours if retention_hours is not None else config.RETENTION_HOURS
+    stop = stop or threading.Event()
+    if retention_hours <= 0:
+        return
+    while not stop.is_set():
+        stop.wait(interval)
+        for path in (config.METRIC_CSV, config.LOG_CSV):
+            try:
+                prune_csv(path, retention_hours)
+            except Exception:
+                pass
 
 
 def discover_pids() -> dict[str, int]:
