@@ -123,9 +123,17 @@ def _oh_cli_predict(incident: dict, *, oh_cmd: str) -> dict:
     blocks = re.findall(r"\{[\s\S]*\}", out)
     for block in reversed(blocks):
         try:
-            return json.loads(block)
+            data = json.loads(block)
         except json.JSONDecodeError:
             continue
+        # new ranked format: top candidate carries the localization
+        top = (data.get("candidates") or [{}])[0]
+        return {
+            "root_service": top.get("service", data.get("root_service")),
+            "fault_jar": top.get("jar", data.get("fault_jar")),
+            "fault_class": top.get("class", data.get("fault_class")),
+            "fault_method": top.get("method", data.get("fault_method")),
+        }
     return {"root_service": None, "fault_jar": None, "fault_class": None,
             "fault_method": None, "_raw": out[-500:]}
 

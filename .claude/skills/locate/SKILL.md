@@ -126,34 +126,55 @@ Do **not** ask for anything you can find with the tools.
 - Feign RPC endpoint `/rpc-api/<module>/...` is a call **to** the `<module>`
   service. Entry endpoint `GET:/admin-api/<module>/...` is served **by** it.
 
-## Output — always end with this JSON block
+## Output — concise, ranked, with a confidence per candidate
 
-Aim for **10–20 tool calls total**. Do not re-run a tool with the same arguments
-you already have the answer for. Once you emit the JSON block below, **stop
-immediately** — do not call more tools, and do not repeat the report.
+Keep it **short and direct** — an operator reads this. Aim for **10–20 tool
+calls**; don't re-run a tool you already have the answer from. Output exactly the
+three parts below, then **stop** (no more tools, no repeated narrative).
+
+**1. Verdict** — one line: the top candidate.
+`Verdict: <service> / <class>.<method> — <fault_type> (confidence 0.NN)`
+
+**2. Candidates** — a small ranked table. List **1–3** competing hypotheses, each
+with its own confidence (they compete, so they roughly sum to ≤ 1). If one
+clearly dominates it still gets its own row; if you're genuinely torn, split the
+confidence. One short evidence-based reason each — no fabrication.
+
+```
+| # | location (service / class.method or endpoint) | type | confidence | why (evidence) |
+|---|-----------------------------------------------|------|-----------|----------------|
+| 1 | yudao-system / MailAccountServiceImpl.getMailAccountList | delay | 0.70 | p95 3014ms 150σ; breakdown: downstream ~26ms, ~2988ms in-method → blocking/sleep/lock or injected |
+| 2 | yudao-system → yudao-infra (async access-log Feign)      | delay | 0.20 | 20 concurrent Feign calls in the path |
+| 3 | yudao-system (Druid pool)                               | resource | 0.10 | getConnection 21× lift |
+```
+
+**3. Machine block** — end with this JSON (the top candidate expanded):
 
 ```json
 {
-  "root_service": "yudao-...",
-  "fault_jar": "yudao-module-...-server",
-  "fault_class": "cn.iocoder.yudao.module....Impl (or null if granularity < class)",
-  "fault_method": "... (or null if granularity < method)",
-  "fault_type": "delay | exception",
+  "verdict": "<service> / <class>.<method> — <fault_type>",
   "granularity": "method | class | endpoint | service",
-  "confidence": { "service": 0.0, "jar": 0.0, "class": 0.0, "method": 0.0 },
-  "evidence": ["tool/finding 1", "tool/finding 2", "..."],
-  "root_cause": "one-paragraph explanation",
-  "fix_suggestion": "concrete change, ideally with file:line"
+  "candidates": [
+    {
+      "rank": 1,
+      "service": "yudao-...",
+      "jar": "yudao-module-...-server",
+      "class": "cn.iocoder.yudao.module....Impl (or null if granularity < class)",
+      "method": "... (or null if granularity < method)",
+      "fault_type": "delay | exception | resource",
+      "confidence": 0.0,
+      "root_cause": "<= 1 sentence, evidence-based (no fabrication)",
+      "evidence": ["signal 1", "signal 2"]
+    },
+    { "rank": 2, "...": "..." }
+  ],
+  "fix": "concrete next step for rank 1, matched to the established cause"
 }
 ```
 
-Set each confidence honestly:
-- **service/jar** — high when one service clearly dominates and topology rules
-  out victims.
-- **class** — high for exception faults (stack/logger give it directly); for
-  delay faults it depends on how cleanly the endpoint maps to one service method.
-- **method** — high when the stack frame or a method-level span names it; lower
-  when inferred only from endpoint→code reading.
-
-If a modality contradicts the others, say so in `evidence` and lower confidence
-rather than forcing a single answer.
+Confidence rules: high only when the evidence pins it (one service dominates and
+topology rules out victims; an exception stack names the frame; a downstream op
+clearly owns the latency). Lower it when a level is inferred (delay endpoint→code
+without a method-level span) or a modality is missing. If the delay is
+in-method/unaccounted and no code cause is visible, the rank-1 confidence in the
+*cause* should be modest even if the *location* is certain — say so.
