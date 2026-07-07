@@ -246,10 +246,20 @@ class ErrorLogsTool(BaseTool):
             return _missing_db_result(exc)
         if not logs:
             return ToolResult(output="No matching error logs in the given window.")
+        import re
+
+        from microservice_fl import config
+
+        pkg = re.escape(config.active_target().package_prefix)
+        frame = re.compile(r"at\s+(" + pkg + r"[\w.$]+)\.(\w+)\(")
         lines = []
         for lg in logs:
             head = f"{lg.timestamp} {lg.service} {lg.level}"
             if lg.logger:
                 head += f" [{lg.logger}]"
-            lines.append(f"{head}\n  {lg.message[:300]}")
+            block = f"{head}\n  {lg.message[:700]}"
+            m = frame.search(lg.message)  # top business frame = the throwing method
+            if m:
+                block += f"\n  business frame: {m.group(1)}.{m.group(2)}"
+            lines.append(block)
         return ToolResult(output="\n".join(lines))

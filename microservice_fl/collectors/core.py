@@ -25,6 +25,9 @@ _METRIC_HEADER = [
 ]
 _LOG_HEADER = ["timestamp", "service", "level", "message", "label", "fault_root"]
 _ERR = re.compile(r"(ERROR|Exception|WARN)")
+#: continuation lines of a Java stack trace (kept with their error header so the
+#: business frame — the class/method that threw — survives into the log CSV).
+_STACK = re.compile(r"^\s*(at\s|Caused by:|\.\.\.\s*\d+\s*more|Suppressed:)")
 
 
 def _ts() -> str:
@@ -135,13 +138,26 @@ def run_logs(interval: int | None = None, stop: threading.Event | None = None) -
                     offsets[fp] = 0  # rotated
                 with open(fp, "r", encoding="utf-8", errors="ignore") as f:
                     f.seek(offsets.get(fp, 0))
-                    for line in f:
-                        if _ERR.search(line):
-                            lvl = ("ERROR" if "ERROR" in line
-                                   else "WARN" if "WARN" in line else "EXCEPTION")
-                            _append(config.LOG_CSV, [_ts(), svc, lvl, line.strip()[:500],
-                                                     "normal", ""])
+                    chunk = f.read()
                     offsets[fp] = f.tell()
+                lines = chunk.splitlines()
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+                    if _ERR.search(line) and not _STACK.match(line):
+                        lvl = ("ERROR" if "ERROR" in line
+                               else "WARN" if "WARN" in line else "EXCEPTION")
+                        parts = [line.strip()]
+                        j = i + 1
+                        # attach the following stack frames (keeps the business frame)
+                        while j < len(lines) and _STACK.match(lines[j]) and len(parts) < 40:
+                            parts.append(lines[j].strip())
+                            j += 1
+                        _append(config.LOG_CSV, [_ts(), svc, lvl, " ".join(parts)[:2000],
+                                                 "normal", ""])
+                        i = j
+                    else:
+                        i += 1
             except Exception:
                 pass
         stop.wait(interval)
