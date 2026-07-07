@@ -69,9 +69,10 @@ def watch(*, interval: int = 60, window_sec: int = 180, locate_window_sec: int =
     det = StatDetector(k=k, warmup=warmup)
     out = Path(out_dir) if out_dir else (Path.cwd() / "incidents")
     out.mkdir(parents=True, exist_ok=True)
-    last_fire = 0.0
+    active: set[str] = set()          # series currently in an (already-localized) incident
+    last_loc: dict[str, float] = {}   # series -> time last localized (anti-flap)
     log(f"[watch] source={type(src).__name__} interval={interval}s window={window_sec}s "
-        f"k={k} warmup={warmup} out={out}")
+        f"k={k} warmup={warmup} cooldown={cooldown}s out={out}")
 
     while True:
         now = datetime.now()
@@ -82,24 +83,32 @@ def watch(*, interval: int = 60, window_sec: int = 180, locate_window_sec: int =
             log(f"[watch] KPI sample error: {exc}")
             kpis = {}
 
-        anomalies = []
+        fired: dict[str, dict] = {}
         for svc, vals in kpis.items():
             for m in _METRICS:
-                hit = det.update(f"{m}:{svc}", float(vals.get(m, 0.0)),
-                                 min_scale=_MIN_SCALE[m])
+                key = f"{m}:{svc}"
+                hit = det.update(key, float(vals.get(m, 0.0)), min_scale=_MIN_SCALE[m])
                 if hit:
-                    anomalies.append({**hit, "service": svc, "metric": m,
-                                      "fault_hint": _FAULT_HINT[m]})
+                    fired[key] = {**hit, "service": svc, "metric": m,
+                                  "fault_hint": _FAULT_HINT[m]}
 
-        if anomalies:
-            top = max(anomalies, key=lambda a: a["score"])
-            log(f"[watch] ANOMALY {top['metric']}:{top['service']} "
-                f"value={top['value']} score={top['score']}σ (of {len(anomalies)} series)")
-            if time.time() - last_fire >= cooldown:
-                last_fire = time.time()
-                _localize(top, now, locate_window_sec, out, log)
-            else:
-                log("[watch] within cooldown — not re-localizing")
+        # a series that was in an incident but is normal now has recovered
+        for key in list(active):
+            if key not in fired:
+                active.discard(key)
+                log(f"[watch] recovered: {key}")
+
+        # edge-trigger: localize only *new* anomalies (not already in an incident),
+        # and not the same series again within the anti-flap gap
+        new = [a for key, a in fired.items()
+               if key not in active and (time.time() - last_loc.get(key, 0.0) >= cooldown)]
+        active |= set(fired)
+        if new:
+            top = max(new, key=lambda a: a["score"])
+            last_loc[top["key"]] = time.time()
+            log(f"[watch] NEW ANOMALY {top['key']} value={top['value']} "
+                f"score={top['score']}σ ({len(fired)} series firing)")
+            _localize(top, now, locate_window_sec, out, log)
 
         if once:
             break

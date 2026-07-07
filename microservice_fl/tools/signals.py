@@ -200,17 +200,37 @@ class EndpointBreakdownTool(BaseTool):
             )
         except FileNotFoundError as exc:
             return _missing_db_result(exc)
-        if not ops:
-            return ToolResult(
-                output=f"No downstream spans found under {arguments.endpoint} in the window "
-                "(check the service/endpoint spelling, e.g. from fl_endpoint_anomaly)."
-            )
         lines = ["component | operation | calls | errs | total_ms | avg_ms | max_ms"]
         for o in ops:
             lines.append(
                 f"{o.component} | {o.operation} | {o.count} | {o.error_count} | "
                 f"{o.total_latency_ms:.0f} | {o.avg_latency_ms:.0f} | {o.max_latency_ms:.0f}"
             )
+
+        # Latency accounting: does the sum of downstream ops explain the endpoint's
+        # own latency, or is most of the time spent IN the method itself?
+        try:
+            eps = get_source().endpoint_anomalies(arguments.service, arguments.to_window(), top_n=50)
+        except FileNotFoundError:
+            eps = []
+        entry = next((e for e in eps
+                      if e.endpoint == arguments.endpoint or arguments.endpoint in e.endpoint
+                      or arguments.endpoint.split(":", 1)[-1] in e.endpoint), None)
+        if entry and entry.count:
+            downstream_per_req = sum(o.total_latency_ms for o in ops) / entry.count
+            self_ms = entry.avg_latency_ms - downstream_per_req
+            lines += [
+                "",
+                f"endpoint avg {entry.avg_latency_ms:.0f} ms/req | downstream ~{downstream_per_req:.0f} "
+                f"ms/req | in-method (unaccounted) ~{self_ms:.0f} ms/req",
+            ]
+            if entry.avg_latency_ms > 0 and self_ms > 0.5 * entry.avg_latency_ms:
+                lines.append(
+                    "  => most latency is IN THE METHOD ITSELF (blocking / sleep / lock / CPU / "
+                    "injected), NOT a downstream op — do not blame a fast downstream call."
+                )
+        if not ops:
+            lines.append("(no downstream spans — delay is entirely in-method, or check the endpoint)")
         return ToolResult(output="\n".join(lines))
 
 

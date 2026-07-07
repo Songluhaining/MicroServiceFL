@@ -84,22 +84,38 @@ Do **not** ask for anything you can find with the tools.
 5. **Confirm the jar.** `fl_class_to_jar` on the class → `yudao-module-<m>-server`.
    A non-business (framework/starter) class means the fault is outside a module
    jar — say so.
-6. **Root cause.** Decompilation is **optional refinement, not required** — the
-   class/method is already localized from the index in step 4.
-   - **Delay (code-free, primary):** `fl_endpoint_breakdown` on the slow endpoint
-     names the dominant downstream op — a specific SQL, a Feign call, a Redis op,
-     a lock. That op *is* the root cause; you can state it with no source at all.
-   - **Refine if the jar decompiles:** `fl_decompile_class` the `*ServiceImpl` to
-     read the method body and pin the exact line / pattern (a per-item loop /
-     N+1, a missing index). If decompilation errors or returns garbage
-     (obfuscated / unavailable jar), **do not fail** — keep the breakdown-based
-     root cause and lower the `method`/fix confidence accordingly.
-   - **Exception:** the exception type + top business frame (from `fl_span_errors`
-     / `fl_error_logs`, or the decompiled method) explains why a frame throws
-     (null deref, bad cast, validation).
-7. **Fix.** Propose a concrete, minimal change at that method (guard the null,
-   add an index / fix the slow query, add a timeout / circuit breaker, fix the
-   lock scope, …). Reference the file/line you read.
+6. **Root cause — state only what the evidence supports; the *type* of fault
+   decides how deep you can honestly go.** Do **not** invent a code-level story
+   the telemetry contradicts (e.g. never claim "full table scan" when the SQL
+   span was fast). Localization (class/method) and root-cause *explanation* are
+   separate: you may know the method yet not have a code-level cause.
+   - **Delay — first do the latency accounting.** `fl_endpoint_breakdown` reports
+     downstream ops **and** the "in-method (unaccounted)" time.
+     - If a **downstream op dominates** (a specific slow SQL / Feign / lock / Redis)
+       → that op is the root cause; name it (code-free is fine).
+     - If the time is **in-method / unaccounted** (downstream ops are all fast) →
+       the delay is in the method's **own execution**: a blocking call, a sleep, a
+       lock, a CPU-bound loop — **or an injected/artificial delay**. Say exactly
+       that; do **not** pin it on a downstream call the breakdown shows is fast.
+       Only decompile to look for an obvious in-method cause (tight loop, sleep);
+       if the code shows nothing that explains 3s, say the cause is not visible in
+       code (likely external/injected) rather than fabricating one.
+   - **Exception — the cause is real and code-level.** The exception type + the
+     top business frame (from `fl_error_logs` stack / `fl_span_errors` / the
+     decompiled method) is *why* it throws (null deref, bad cast, validation).
+   - **Resource (cpu/mem) — service-level.** Name the saturated service; the
+     "method" may be null. Don't force a class/method for a whole-service resource
+     fault.
+   - Decompilation is **optional refinement**. If it errors / is obfuscated,
+     keep the telemetry-based cause and lower confidence — don't fail.
+7. **Fix — match it to the cause you actually established.** When the cause is a
+   concrete code/data issue (a slow query → add an index; a null deref → guard
+   it; an N+1 → batch it), propose that minimal change with the file/line. When
+   the delay is **in-method / unaccounted and no code reason is visible** (or the
+   jar can't be read), do **not** fabricate a code fix — recommend the honest
+   next step instead (profile the method / check for an external or injected
+   delay / add a timeout) and keep `fix_suggestion` proportional to your
+   confidence.
 
 ## yudao naming conventions (deterministic)
 
