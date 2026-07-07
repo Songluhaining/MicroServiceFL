@@ -22,6 +22,9 @@ from microservice_fl.monitor.detector import StatDetector
 _METRICS = ("cpu", "mem", "latency_ms", "error_count")
 _FAULT_HINT = {"latency_ms": "delay", "error_count": "exception",
                "cpu": "resource", "mem": "resource"}
+#: floor on each series' spread so a jump from a flat baseline still fires
+#: (cpu/mem in %, latency in ms, error_count in rows/window)
+_MIN_SCALE = {"cpu": 2.0, "mem": 1.0, "latency_ms": 20.0, "error_count": 1.0}
 
 
 def _fmt(dt: datetime) -> str:
@@ -82,7 +85,8 @@ def watch(*, interval: int = 60, window_sec: int = 180, locate_window_sec: int =
         anomalies = []
         for svc, vals in kpis.items():
             for m in _METRICS:
-                hit = det.update(f"{m}:{svc}", float(vals.get(m, 0.0)))
+                hit = det.update(f"{m}:{svc}", float(vals.get(m, 0.0)),
+                                 min_scale=_MIN_SCALE[m])
                 if hit:
                     anomalies.append({**hit, "service": svc, "metric": m,
                                       "fault_hint": _FAULT_HINT[m]})

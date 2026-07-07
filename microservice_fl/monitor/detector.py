@@ -35,12 +35,14 @@ class StatDetector:
         self._hist: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=history))
         self._breach: dict[str, int] = defaultdict(int)
 
-    def update(self, key: str, value: float) -> dict | None:
+    def update(self, key: str, value: float, min_scale: float = 0.0) -> dict | None:
         """Feed one sample for series ``key``; return an anomaly dict or ``None``.
 
         Fires when ``value`` exceeds the rolling distribution threshold for
         ``consecutive`` samples. In-range values extend the baseline; breaching
-        values are held out of it.
+        values are held out of it. ``min_scale`` is a floor on the distribution
+        spread so a metric with a near-constant baseline (e.g. error-count ~0)
+        still detects a meaningful jump instead of collapsing to a 0 threshold.
         """
         h = self._hist[key]
         if len(h) < self.warmup:
@@ -48,6 +50,7 @@ class StatDetector:
             return None
 
         center, scale = self._center_scale(h)
+        scale = max(scale, min_scale)
         threshold = center + self.k * scale
         if scale > 0 and value > threshold:
             self._breach[key] += 1
