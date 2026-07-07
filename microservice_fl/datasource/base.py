@@ -210,6 +210,24 @@ class DataSource(ABC):
         leaf (SQL / RPC / cache) is visible as a code-free root cause.
         """
 
+    # -- autonomous monitoring --------------------------------------------- #
+
+    def service_kpis(self, window: TimeWindow) -> dict[str, dict[str, float]]:
+        """Per-service numeric KPIs for the statistical detector:
+        ``{service: {"cpu", "mem", "latency_ms", "error_count"}}``.
+
+        Default composes :meth:`service_anomalies`; override for a cheaper impl.
+        """
+        out: dict[str, dict[str, float]] = {}
+        for s in self.service_anomalies(window, top_n=100):
+            out[s.service] = {
+                "cpu": float(s.cpu_pct) if s.cpu_pct is not None else 0.0,
+                "mem": float(s.mem_pct) if s.mem_pct is not None else 0.0,
+                "latency_ms": float(s.avg_latency_ms),
+                "error_count": float(s.error_count),
+            }
+        return out
+
     # -- lifecycle ---------------------------------------------------------- #
 
     def close(self) -> None:

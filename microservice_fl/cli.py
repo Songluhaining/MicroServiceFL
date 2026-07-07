@@ -174,6 +174,30 @@ def collect_cmd(
         typer.echo("\nstopped")
 
 
+@app.command("watch")
+def watch_cmd(
+    interval: int = typer.Option(60, "--interval", help="seconds between detection ticks"),
+    window: int = typer.Option(180, "--window", help="detection sample window (s)"),
+    locate_window: int = typer.Option(300, "--locate-window", help="window handed to /locate (s)"),
+    cooldown: int = typer.Option(600, "--cooldown", help="min seconds between localizations"),
+    k: float = typer.Option(3.0, "--k", help="distribution threshold in sigmas"),
+    warmup: int = typer.Option(15, "--warmup", help="samples to learn normal before detecting"),
+    out_dir: str = typer.Option(None, "--out", help="incident reports dir (default ./incidents)"),
+    once: bool = typer.Option(False, "--once", help="run a single detection tick and exit"),
+) -> None:
+    """Autonomously monitor metrics; statistically detect anomalies and auto-localize.
+
+    Metrics (cpu/mem/latency/error-count) drive a rolling statistical detector;
+    on a breach it runs /locate for the anomalous service and writes a report.
+    Typically run under nohup alongside `fl collect`.
+    """
+    from microservice_fl.monitor.watch import watch
+
+    watch(interval=interval, window_sec=window, locate_window_sec=locate_window,
+          cooldown=cooldown, k=k, warmup=warmup, out_dir=out_dir, once=once,
+          log=lambda m: typer.echo(m))
+
+
 @app.command("repl")
 def repl_cmd() -> None:
     """Launch the interactive localizer (prints each tool call; no Node needed)."""

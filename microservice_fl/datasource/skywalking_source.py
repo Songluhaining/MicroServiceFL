@@ -405,6 +405,62 @@ class SkyWalkingDataSource(DataSource):
             for ts, svc, lvl, msg in rows
         ]
 
+    # -- autonomous monitoring (cheap per-service KPIs) --------------------- #
+
+    def _service_from_endpoint(self, name: str) -> str | None:
+        """``POST:/admin-api/system/...`` -> ``yudao-system`` (via naming)."""
+        path = name
+        if ":" in name and name.split(":", 1)[0].isupper():
+            path = name.split(":", 1)[1]
+        parts = [p for p in path.split("/") if p]
+        if len(parts) >= 2 and parts[0] in ("admin-api", "app-api", "rpc-api"):
+            return config.module_to_service(parts[1])
+        return None
+
+    def _log_error_counts(self, start: datetime, end: datetime) -> dict[str, int]:
+        if not self._log_csv or not Path(self._log_csv).exists():
+            return {}
+        off = timedelta(hours=self._tz_offset)
+        s, e = start - off, end - off
+        con = self._csv_conn()
+        try:
+            rows = con.execute(
+                "SELECT service, count(*) FROM read_csv_auto(?, "
+                "types={'timestamp': 'VARCHAR'}, sample_size=-1, ignore_errors=true) "
+                "WHERE level IN ('ERROR', 'EXCEPTION') "
+                "AND strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ') >= ? "
+                "AND strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ') < ? GROUP BY service",
+                [self._log_csv, s, e],
+            ).fetchall()
+        except Exception:
+            return {}
+        finally:
+            con.close()
+        return {r[0]: int(r[1]) for r in rows}
+
+    def service_kpis(self, window: TimeWindow) -> dict[str, dict[str, float]]:
+        start, end, _, _ = self._resolve(window)
+        cpu_mem = self._service_cpu_mem(start, end)     # {svc: (cpu, mem)}, tz-aware
+        errs = self._log_error_counts(start, end)        # {svc: count}, tz-aware
+        lat: dict[str, list[float]] = defaultdict(list)  # trace latency by service
+        for t in self._basic_traces(start, end):
+            for n in (t.get("endpointNames") or []):
+                svc = self._service_from_endpoint(n)
+                if svc:
+                    lat[svc].append(float(t.get("duration") or 0))
+        out: dict[str, dict[str, float]] = {}
+        for svc in set(cpu_mem) | set(errs) | set(lat):
+            cpu, mem = cpu_mem.get(svc, (None, None))
+            durs = sorted(lat.get(svc, []))
+            p95 = durs[int(0.95 * (len(durs) - 1))] if durs else 0.0
+            out[svc] = {
+                "cpu": float(cpu) if cpu is not None else 0.0,
+                "mem": float(mem) if mem is not None else 0.0,
+                "latency_ms": float(p95),
+                "error_count": float(errs.get(svc, 0)),
+            }
+        return out
+
     # -- ground truth (N/A live) -------------------------------------------- #
 
     def list_cases(self) -> list[Case]:
