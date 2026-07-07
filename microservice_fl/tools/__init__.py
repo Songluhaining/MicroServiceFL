@@ -12,6 +12,7 @@ from openharness.tools.base import BaseTool
 
 def build_fl_tools() -> list[BaseTool]:
     """Instantiate every fault-localization tool."""
+    from microservice_fl.tools.capabilities import CapabilitiesTool
     from microservice_fl.tools.cases import ListCasesTool, GetCaseTool
     from microservice_fl.tools.codemap import MapEndpointTool, ClassToJarTool
     from microservice_fl.tools.decompile import DecompileClassTool
@@ -25,6 +26,7 @@ def build_fl_tools() -> list[BaseTool]:
     )
 
     return [
+        CapabilitiesTool(),
         ScanServicesTool(),
         TopologyTool(),
         EndpointAnomalyTool(),

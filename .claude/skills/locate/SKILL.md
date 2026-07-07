@@ -29,6 +29,7 @@ Do **not** ask for anything you can find with the tools.
 
 | tool | use |
 |------|-----|
+| `fl_capabilities` | **call first** — probes if the jar is parseable and the max granularity (method/class/endpoint) |
 | `fl_scan_services` | rank services by error/latency lift vs baseline — the candidate set |
 | `fl_topology` | caller→callee RPC edges with per-edge latency/errors — **root vs victim** |
 | `fl_endpoint_anomaly` | within a service, the slow/failing Entry endpoint |
@@ -41,6 +42,18 @@ Do **not** ask for anything you can find with the tools.
 
 ## Method — follow this chain
 
+0. **Probe capabilities.** `fl_capabilities` first. It tells you the **maximum
+   granularity** this deployment supports and whether the jar is parseable:
+   - **method** — jar parseable (index + decompile): do the full chain below.
+   - **class** — index only (jar encrypted/undecompilable): localize the class
+     from the index, but take the **root cause from telemetry** (step 6a), not
+     decompiled code.
+   - **endpoint** — no jar at all: **telemetry-only**. Skip `fl_map_endpoint`
+     class resolution and all decompilation; localize service/endpoint from
+     trace, root cause from `fl_endpoint_breakdown`, and class/method **only** if
+     an exception log carries a business frame. Report `granularity: "endpoint"`
+     and do not invent a class/method you cannot support.
+   Never claim a granularity finer than `fl_capabilities` reports.
 1. **Scope.** `fl_scan_services` over the window. Note every service with a
    real lift (error-rate up, or latency up vs baseline).
 2. **Find the root, not a victim.** `fl_topology`. In Spring Cloud a slow/failing
@@ -107,9 +120,10 @@ immediately** — do not call more tools, and do not repeat the report.
 {
   "root_service": "yudao-...",
   "fault_jar": "yudao-module-...-server",
-  "fault_class": "cn.iocoder.yudao.module....Impl",
-  "fault_method": "...",
+  "fault_class": "cn.iocoder.yudao.module....Impl (or null if granularity < class)",
+  "fault_method": "... (or null if granularity < method)",
   "fault_type": "delay | exception",
+  "granularity": "method | class | endpoint | service",
   "confidence": { "service": 0.0, "jar": 0.0, "class": 0.0, "method": 0.0 },
   "evidence": ["tool/finding 1", "tool/finding 2", "..."],
   "root_cause": "one-paragraph explanation",
