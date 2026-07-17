@@ -18,6 +18,7 @@ from pathlib import Path
 from microservice_fl.datasource import get_default_source
 from microservice_fl.datasource.base import TimeWindow
 from microservice_fl.monitor.detector import StatDetector
+from microservice_fl.monitor.log_signatures import SignatureDetector
 
 _METRICS = ("cpu", "mem", "latency_ms", "error_count")
 _FAULT_HINT = {"latency_ms": "delay", "error_count": "exception",
@@ -25,6 +26,12 @@ _FAULT_HINT = {"latency_ms": "delay", "error_count": "exception",
 #: floor on each series' spread so a jump from a flat baseline still fires
 #: (cpu/mem in %, latency in ms, error_count in rows/window)
 _MIN_SCALE = {"cpu": 2.0, "mem": 1.0, "latency_ms": 20.0, "error_count": 1.0}
+#: absolute floor for resource metrics: a cpu/mem breach must ALSO exceed this
+#: raw level to fire. Resource faults are only real at a meaningful absolute
+#: level, so normal single-digit jitter on an idle service's flat baseline can't
+#: trip a 3-sigma alert on its own. Latency/error-count have no floor here — any
+#: statistical lift matters — so they are absent from this map (default 0.0).
+_MIN_ABS = {"cpu": 40.0, "mem": 40.0}
 
 
 def _fmt(dt: datetime) -> str:
@@ -38,6 +45,9 @@ def _symptom(a: dict) -> str:
                 f"(> statistical threshold {a['threshold']:.0f}, {a['score']:.1f}σ)")
     if m == "error_count":
         return f"{svc} error-log count spiked to {v:.0f} in the window (> statistical threshold)"
+    if m == "error_signature":
+        return (f"{svc} 出现新的错误类型 {a.get('exc_type', '?')} @ "
+                f"{a.get('frame', '?')}（窗口内 {v:.0f} 次）: {a.get('sample', '')[:160]}")
     return f"{svc} {m} spiked to {v:.1f}% (> statistical threshold {a['threshold']:.1f})"
 
 
@@ -67,6 +77,7 @@ def watch(*, interval: int = 60, window_sec: int = 180, locate_window_sec: int =
           warmup: int = 15, once: bool = False, log=print) -> None:
     src = get_default_source()
     det = StatDetector(k=k, warmup=warmup)
+    sig_det = SignatureDetector(warmup=warmup)
     out = Path(out_dir) if out_dir else (Path.cwd() / "incidents")
     out.mkdir(parents=True, exist_ok=True)
     active: set[str] = set()          # series currently in an (already-localized) incident
@@ -88,9 +99,19 @@ def watch(*, interval: int = 60, window_sec: int = 180, locate_window_sec: int =
             for m in _METRICS:
                 key = f"{m}:{svc}"
                 hit = det.update(key, float(vals.get(m, 0.0)), min_scale=_MIN_SCALE[m])
-                if hit:
+                if hit and hit["value"] >= _MIN_ABS.get(m, 0.0):
                     fired[key] = {**hit, "service": svc, "metric": m,
                                   "fault_hint": _FAULT_HINT[m]}
+
+        # content-aware log detection: fire on a NEW error signature even when the
+        # error *count* never breaches its threshold (low-volume but important)
+        try:
+            err_logs = src.error_logs(None, w, levels=("ERROR", "EXCEPTION"), limit=1000)
+        except Exception as exc:
+            log(f"[watch] error-log sample failed: {exc}")
+            err_logs = []
+        for a in sig_det.update(err_logs):
+            fired[a["key"]] = a
 
         # a series that was in an incident but is normal now has recovered
         for key in list(active):

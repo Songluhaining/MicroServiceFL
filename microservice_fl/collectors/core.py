@@ -28,10 +28,31 @@ _METRIC_HEADER = [
     "proc_cpu_pct", "proc_mem_rss", "proc_mem_pct", "label", "fault_root", "fault_type",
 ]
 _LOG_HEADER = ["timestamp", "service", "level", "message", "label", "fault_root"]
-_ERR = re.compile(r"(ERROR|Exception|WARN)")
+#: terminal colour escape sequences logback console layouts leak into log files
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: continuation lines of a Java stack trace (kept with their error header so the
 #: business frame — the class/method that threw — survives into the log CSV).
 _STACK = re.compile(r"^\s*(at\s|Caused by:|\.\.\.\s*\d+\s*more|Suppressed:)")
+
+
+def _classify(line: str) -> str | None:
+    """Real level of a log line, or ``None`` if it should not be recorded as error.
+
+    Keyed off the explicit level token, NOT the mere presence of the word
+    "Exception" — an INFO/DEBUG record that merely mentions an exception is not an
+    error (the old ``(ERROR|Exception|WARN)`` match mislabelled those as EXCEPTION
+    and inflated the error count). A bare stack header with no level token but an
+    exception class is EXCEPTION.
+    """
+    if re.search(r"\bERROR\b", line):
+        return "ERROR"
+    if re.search(r"\bWARN\b", line):
+        return "WARN"
+    if re.search(r"\b(?:INFO|DEBUG|TRACE)\b", line):
+        return None
+    if re.search(r"\b[\w.]+(?:Exception|Error)\b", line):
+        return "EXCEPTION"
+    return None
 
 
 def _ts() -> str:
@@ -190,15 +211,17 @@ def run_logs(interval: int | None = None, stop: threading.Event | None = None) -
                 lines = chunk.splitlines()
                 i = 0
                 while i < len(lines):
-                    line = lines[i]
-                    if _ERR.search(line) and not _STACK.match(line):
-                        lvl = ("ERROR" if "ERROR" in line
-                               else "WARN" if "WARN" in line else "EXCEPTION")
+                    line = _ANSI.sub("", lines[i])  # strip colour codes before parsing
+                    lvl = None if _STACK.match(line) else _classify(line)
+                    if lvl is not None:
                         parts = [line.strip()]
                         j = i + 1
                         # attach the following stack frames (keeps the business frame)
-                        while j < len(lines) and _STACK.match(lines[j]) and len(parts) < 40:
-                            parts.append(lines[j].strip())
+                        while j < len(lines) and len(parts) < 40:
+                            nxt = _ANSI.sub("", lines[j])
+                            if not _STACK.match(nxt):
+                                break
+                            parts.append(nxt.strip())
                             j += 1
                         _append(config.LOG_CSV, [_ts(), svc, lvl, " ".join(parts)[:2000],
                                                  "normal", ""])
