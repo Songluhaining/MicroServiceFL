@@ -110,6 +110,25 @@ class SkyWalkingDataSource(DataSource):
     def close(self) -> None:
         self._client.close()
 
+    def capabilities(self) -> dict[str, object]:
+        from microservice_fl.datasource.base import csv_fresh
+
+        trace_ok, trace_note = self._probe_oap()
+        metric_ok, metric_note = csv_fresh(self._metric_csv)
+        log_ok, log_note = csv_fresh(self._log_csv)
+        return {
+            "trace": trace_ok, "metric": metric_ok, "log": log_ok,
+            "notes": {"trace": trace_note, "metric": metric_note, "log": log_note},
+        }
+
+    def _probe_oap(self) -> tuple[bool, str]:
+        """Is the OAP GraphQL endpoint reachable? (any HTTP < 500 == up)."""
+        try:
+            r = self._client.post(self._url, json={"query": "{ version }"})
+            return r.status_code < 500, f"OAP HTTP {r.status_code} ({self._url})"
+        except Exception as exc:  # connection refused / timeout / DNS
+            return False, f"OAP unreachable ({exc})"
+
     # -- GraphQL plumbing --------------------------------------------------- #
 
     def _gql(self, query: str, variables: dict) -> dict:

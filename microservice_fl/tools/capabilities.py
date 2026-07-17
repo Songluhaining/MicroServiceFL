@@ -44,8 +44,18 @@ class CapabilitiesTool(BaseTool):
 
     async def execute(self, arguments: CapabilitiesInput, context: ToolExecutionContext) -> ToolResult:
         del arguments, context
+        from microservice_fl.datasource import get_default_source
         from microservice_fl.greybox.decompile import decompile_class
         from microservice_fl.tools.codemap import _load_index
+
+        # -- data modalities: which of trace / metric / log are actually live -- #
+        try:
+            caps = get_default_source().capabilities()
+        except Exception as exc:  # never let the probe crash the tool
+            caps = {"trace": False, "metric": False, "log": False,
+                    "notes": {"error": str(exc)}}
+        trace_ok = bool(caps.get("trace"))
+        notes = caps.get("notes", {}) if isinstance(caps.get("notes"), dict) else {}
 
         idx = _load_index()
         index_ok = bool(idx)
@@ -81,8 +91,31 @@ class CapabilitiesTool(BaseTool):
                     "from trace, root cause from fl_endpoint_breakdown; class/method "
                     "only if an exception log (fl_error_logs) carries a business frame.")
 
+        # data modalities override the plan: no trace removes topology + breakdown,
+        # so delay faults can only reach service level while exceptions still reach
+        # class/method from log stacks. Never claim finer than the data supports.
+        if not trace_ok:
+            if gran == "method" and caps.get("log"):
+                gran = "method (exception via log stack only)"
+            else:
+                gran = "service"
+            plan = ("NO TRACE — fl_topology / fl_endpoint_breakdown / fl_span_errors are "
+                    "unavailable, so you CANNOT do root-vs-victim or delay accounting. "
+                    "Localize the anomalous SERVICE from metrics (fl_scan_services: cpu/"
+                    "mem/error-count) and reach a class/method ONLY for EXCEPTION faults "
+                    "from fl_error_logs stacks. Delay faults stay at service level — do "
+                    "not invent a downstream cause you cannot see.")
+
+        def mark(ok: bool) -> str:
+            return "available" if ok else "ABSENT"
+
         out = [
             "localization capabilities (probed at runtime):",
+            "  -- data modalities --",
+            f"  trace  : {mark(trace_ok)}  ({notes.get('trace', '')})",
+            f"  metric : {mark(bool(caps.get('metric')))}  ({notes.get('metric', '')})",
+            f"  log    : {mark(bool(caps.get('log')))}  ({notes.get('log', '')})",
+            "  -- code artifacts --",
             f"  endpoint index : {('available (' + str(len(idx)) + ' endpoints)') if index_ok else 'absent'}",
             f"  jar decompiles : {decompile_note}",
             "",

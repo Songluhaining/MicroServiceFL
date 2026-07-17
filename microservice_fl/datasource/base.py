@@ -4,6 +4,40 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def csv_fresh(path: str | None, *, max_age_min: int = 10) -> tuple[bool, str]:
+    """Whether a live-appended CSV exists and its last data row is recent.
+
+    Cheap probe (reads only the file tail) used to tell if the metric/log
+    collectors are actually feeding fresh data — the "is this modality live?"
+    signal behind :meth:`DataSource.capabilities`. Returns ``(ok, note)``.
+    """
+    if not path:
+        return False, "not configured"
+    p = Path(path)
+    if not p.exists():
+        return False, f"absent ({path})"
+    try:
+        with open(p, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode("utf-8", "ignore").strip().splitlines()
+    except OSError as exc:
+        return False, f"unreadable ({exc})"
+    rows = [r for r in tail if r and not r.startswith("timestamp")]
+    if not rows:
+        return False, "empty (header only)"
+    ts = rows[-1].split(",", 1)[0]
+    try:
+        last = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True, f"present (last ts unparsed: {ts})"
+    age_min = (datetime.now(timezone.utc) - last).total_seconds() / 60.0
+    return age_min <= max_age_min, f"last row {age_min:.0f} min ago"
 
 
 @dataclass(frozen=True)
@@ -227,6 +261,32 @@ class DataSource(ABC):
                 "error_count": float(s.error_count),
             }
         return out
+
+    # -- capability probe (which modalities are live) ----------------------- #
+
+    def capabilities(self) -> dict[str, object]:
+        """Report which data modalities are live, so the agent can self-adapt.
+
+        Returns ``{"trace": bool, "metric": bool, "log": bool, "notes": {...}}``.
+        The whole localizer degrades per-modality: with ``trace`` the agent gets
+        topology (root vs victim) and delay breakdown; without it, it localizes
+        the service from metrics and an exception's class/method from log stacks.
+        ``fl_capabilities`` reads this and reports an honest granularity.
+
+        Default reports ``metric``/``log`` from live-CSV freshness and assumes
+        ``trace`` is present; a source whose trace backend is optional or
+        probeable (e.g. DeepFlow / SkyWalking OAP) should override to probe it.
+        """
+        from microservice_fl import config
+
+        metric_ok, metric_note = csv_fresh(config.METRIC_CSV)
+        log_ok, log_note = csv_fresh(config.LOG_CSV)
+        return {
+            "trace": True,
+            "metric": metric_ok,
+            "log": log_ok,
+            "notes": {"trace": "assumed (not probed)", "metric": metric_note, "log": log_note},
+        }
 
     # -- lifecycle ---------------------------------------------------------- #
 
